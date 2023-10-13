@@ -23,3 +23,12 @@ export const getEpisodesByFeed = (feedId: number, maxResults = 10) => {
     headers,
   });
 };
+
+export const searchPodcasts = (query: string, maxResults = 10) => {
+  return fetch(
+    `${baseUrl}/search/byterm?q=${encodeURIComponent(query)}&max=${maxResults}`,
+    {
+      headers,
+    }
+  );
+};

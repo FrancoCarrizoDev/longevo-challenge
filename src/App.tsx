@@ -1,5 +1,12 @@
-import { SyntheticEvent, useContext, useEffect, useRef, useState } from "react";
-import { getEpisodesByFeed, getTrending } from "./api";
+import {
+  ChangeEvent,
+  SyntheticEvent,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { getEpisodesByFeed, getTrending, searchPodcasts } from "./api";
 import {
   Box,
   Button,
@@ -38,6 +45,7 @@ import CustomDrawer from "./components/CustomDrawer";
 import { PodcastContext } from "./context";
 import { AiOutlinePlayCircle } from "react-icons/ai";
 import { useIntersectionObserver } from "./hooks/useIntersectionObserver";
+import { useDebounce } from "./hooks/useDebounce";
 
 const BiSolidStarChakra = chakra(BiSolidStar);
 
@@ -56,8 +64,8 @@ function App() {
     updateEpisodes,
   } = useContext(PodcastContext);
 
-  const [maxPodcastsResults, setPodcastsMaxResults] = useState(20);
-  const [maxEpisodesResults, setEpisodesMaxResults] = useState(20);
+  const [maxPodcastsResults, setPodcastsMaxResults] = useState(12);
+  const [maxEpisodesResults, setEpisodesMaxResults] = useState(6);
   const refElBottomPodcasts = useRef<HTMLDivElement>(null);
   const entryPodcasts = useIntersectionObserver(refElBottomPodcasts, {});
   const isVisibleBottomPodcast = !!entryPodcasts?.isIntersecting;
@@ -70,6 +78,9 @@ function App() {
   const [isHoveringSearch, setIsHoveringSearch] = useState(false);
   const [trendingPodcast, setTrendingPodcast] = useState<Feed[]>([]);
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const debounceSearchTerm = useDebounce(searchTerm, 1000);
+
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<ViewsEnum>(ViewsEnum.TRENDING);
 
@@ -79,6 +90,35 @@ function App() {
       .then((data: TrendingPodcastResponse) => setTrendingPodcast(data.feeds))
       .finally(() => setIsLoading(false));
   }, [maxPodcastsResults]);
+
+  useEffect(() => {
+    if (isVisibleBottomPodcast) {
+      setPodcastsMaxResults((prev) => prev + 10);
+    }
+  }, [isVisibleBottomPodcast]);
+
+  useEffect(() => {
+    if (isVisibleBottomEpisodes) {
+      setEpisodesMaxResults((prev) => prev + 5);
+    }
+  }, [isVisibleBottomEpisodes]);
+
+  useEffect(() => {
+    if (selectedPodcast?.id) {
+      getEpisodesByFeed(selectedPodcast.id, maxEpisodesResults)
+        .then((data) => data.json())
+        .then((data: EdpisodesByFeedResponse) => updateEpisodes(data.items));
+    }
+  }, [maxEpisodesResults, selectedPodcast?.id, updateEpisodes]);
+
+  useEffect(() => {
+    if (debounceSearchTerm !== "") {
+      searchPodcasts(debounceSearchTerm, maxPodcastsResults)
+        .then((response) => response.json())
+        .then((data: TrendingPodcastResponse) => setTrendingPodcast(data.feeds))
+        .finally(() => setIsLoading(false));
+    }
+  }, [debounceSearchTerm, maxPodcastsResults]);
 
   const handleFavorite = (e: SyntheticEvent, podcast: Feed) => {
     e.stopPropagation();
@@ -119,25 +159,12 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (isVisibleBottomPodcast) {
-      setPodcastsMaxResults((prev) => prev + 10);
-    }
-  }, [isVisibleBottomPodcast]);
+  const handleChangeSearchTerm = (e: ChangeEvent<HTMLInputElement>) => {
+    setIsLoading(true);
+    setSearchTerm(e.target.value);
+  };
 
-  useEffect(() => {
-    if (isVisibleBottomEpisodes) {
-      setEpisodesMaxResults((prev) => prev + 10);
-    }
-  }, [isVisibleBottomEpisodes]);
-
-  useEffect(() => {
-    if (selectedPodcast?.id) {
-      getEpisodesByFeed(selectedPodcast.id, maxEpisodesResults)
-        .then((data) => data.json())
-        .then((data: EdpisodesByFeedResponse) => updateEpisodes(data.items));
-    }
-  }, [maxEpisodesResults, selectedPodcast?.id, updateEpisodes]);
+  const podcastByView = mapPodcastByView();
 
   return (
     <ChakraProvider>
@@ -271,7 +298,11 @@ function App() {
                   key={"input-search"}
                 >
                   <InputGroup>
-                    <Input placeholder="Buscar podcast..." rounded={"full"} />
+                    <Input
+                      placeholder="Buscar podcast..."
+                      rounded={"full"}
+                      onChange={handleChangeSearchTerm}
+                    />
                     <InputRightElement
                       cursor={"pointer"}
                       onClick={() => setIsHoveringSearch(!isHoveringSearch)}
@@ -306,7 +337,7 @@ function App() {
             gap={6}
             templateColumns={"repeat(auto-fill, minmax(270px, 1fr))"}
           >
-            {isLoading && (
+            {isLoading ? (
               <>
                 <Skeleton height="350px" />
                 <Skeleton height="350px" />
@@ -317,101 +348,104 @@ function App() {
                 <Skeleton height="350px" />
                 <Skeleton height="350px" />
               </>
-            )}
-            {mapPodcastByView().map((podcast) => (
-              <Box key={podcast.id}>
-                <Box
-                  w="100%"
-                  h="350px"
-                  background={`url(${podcast.image})`}
-                  backgroundSize="cover"
-                  backgroundPosition="center"
-                  backgroundRepeat="no-repeat"
-                  position={"relative"}
-                  borderRadius={"lg"}
-                  transition="all 0.3s ease"
-                  _hover={{
-                    transform: "scale(1.1)",
-                    transition: "all 0.3s ease",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => handleClickFeed(podcast)}
-                >
-                  <Flex
-                    backgroundColor={"rgba(0,0,0,0.6)"}
-                    w={"100%"}
-                    h={"100%"}
+            ) : (
+              podcastByView.map((podcast) => (
+                <Box key={podcast.id}>
+                  <Box
+                    w="100%"
+                    h="350px"
+                    background={`url(${podcast.image})`}
+                    backgroundSize="cover"
+                    backgroundPosition="center"
+                    backgroundRepeat="no-repeat"
+                    position={"relative"}
                     borderRadius={"lg"}
+                    transition="all 0.3s ease"
+                    _hover={{
+                      transform: "scale(1.1)",
+                      transition: "all 0.3s ease",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => handleClickFeed(podcast)}
                   >
                     <Flex
-                      flexDir={"column"}
-                      maxW={"100%"}
-                      p="5"
-                      justifyContent={"space-between"}
+                      backgroundColor={"rgba(0,0,0,0.6)"}
                       w={"100%"}
+                      h={"100%"}
+                      borderRadius={"lg"}
                     >
-                      <Flex justifyContent={"flex-end"} cursor={"pointer"}>
-                        <Icon
-                          as={
-                            existsInFavorites(podcast)
-                              ? BiSolidStar
-                              : AiOutlineStar
-                          }
-                          w={10}
-                          h={10}
-                          color={
-                            existsInFavorites(podcast) ? "yellow.400" : "white"
-                          }
-                          transition={"all 0.3s ease"}
-                          _hover={{
-                            color: "yellow.400",
-                            transition: "all 0.3s ease",
-                          }}
-                          zIndex={99}
-                          onClick={(e) => handleFavorite(e, podcast)}
-                        />
-                      </Flex>
-                      <Flex color="white" flexDir={"column"}>
-                        <Heading
-                          sx={{
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                          fontSize={"lg"}
-                        >
-                          {podcast.title}
-                        </Heading>
-                        <Text
-                          pt={1}
-                          fontWeight={"semibold"}
-                          className={styles.lineClamp}
-                          fontSize={"sm"}
-                        >
-                          {podcast.description}
-                        </Text>
-                        <Flex alignItems={"center"} gap={3} pt="3">
-                          <Icon as={AiOutlineUser} />
-                          <Text
+                      <Flex
+                        flexDir={"column"}
+                        maxW={"100%"}
+                        p="5"
+                        justifyContent={"space-between"}
+                        w={"100%"}
+                      >
+                        <Flex justifyContent={"flex-end"} cursor={"pointer"}>
+                          <Icon
+                            as={
+                              existsInFavorites(podcast)
+                                ? BiSolidStar
+                                : AiOutlineStar
+                            }
+                            w={10}
+                            h={10}
+                            color={
+                              existsInFavorites(podcast)
+                                ? "yellow.400"
+                                : "white"
+                            }
+                            transition={"all 0.3s ease"}
+                            _hover={{
+                              color: "yellow.400",
+                              transition: "all 0.3s ease",
+                            }}
+                            zIndex={99}
+                            onClick={(e) => handleFavorite(e, podcast)}
+                          />
+                        </Flex>
+                        <Flex color="white" flexDir={"column"}>
+                          <Heading
                             sx={{
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                             }}
+                            fontSize={"lg"}
                           >
-                            por {podcast.author}
+                            {podcast.title}
+                          </Heading>
+                          <Text
+                            pt={1}
+                            fontWeight={"semibold"}
+                            className={styles.lineClamp}
+                            fontSize={"sm"}
+                          >
+                            {podcast.description}
                           </Text>
+                          <Flex alignItems={"center"} gap={3} pt="3">
+                            <Icon as={AiOutlineUser} />
+                            <Text
+                              sx={{
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              por {podcast.author}
+                            </Text>
+                          </Flex>
                         </Flex>
                       </Flex>
                     </Flex>
-                  </Flex>
+                  </Box>
                 </Box>
-              </Box>
-            ))}
-            <Box ref={refElBottomPodcasts} />
+              ))
+            )}
           </Grid>
         </Flex>
       </Box>
+      <Box mt={"100px"} bottom={0} ref={refElBottomPodcasts} />
     </ChakraProvider>
   );
 }
